@@ -25,6 +25,11 @@ class Curve():
         self.end_point = points[-1]
         self.internal_points = points[1:-1].clone().detach().requires_grad_(True)
 
+    def get_length(self):
+        points = torch.stack([self[i] for i in range(self.n)], dim=0)
+        diffs = points[1:] - points[:-1]
+        return torch.sum(torch.norm(diffs, dim=1))
+
     def __getitem__(self, idx):
         if idx == 0:
             return self.start_point
@@ -286,7 +291,7 @@ if __name__ == "__main__":
         "mode",
         type=str,
         default="train",
-        choices=["train", "sample", "eval", "geodesics"],
+        choices=["train", "sample", "eval", "geodesics", "cov"],
         help="what to do when running the script (default: %(default)s)",
     )
     parser.add_argument(
@@ -452,7 +457,7 @@ if __name__ == "__main__":
             model,
             optimizer,
             mnist_train_loader,
-            args.epochs_per_decoder,
+            args.epochs_per_decoder * args.num_decoders,
             args.device,
         )
         os.makedirs(f"{experiments_folder}", exist_ok=True)
@@ -562,6 +567,59 @@ if __name__ == "__main__":
         plt.legend()
         plt.show()
 
+    elif args.mode == "cov":
+        # Simple selection of 10 random test data pairs (each pair is two sample points)
+        x_batch, _ = next(iter(mnist_test_loader))
+        idx = torch.randperm(x_batch.size(0))[:20]
+        test_pairs = [
+            (x_batch[idx[2 * i]], x_batch[idx[2 * i + 1]])
+            for i in range(10)
+        ]
+
+        euc_covs = []
+        geo_covs = []
+        for d in [1, 2, 3, 5]:
+            euclidean_distances = []
+            geodesics_distances = []
+            for i in range(1, 11):
+                model = EnsembleVAE(
+                    GaussianPrior(M),
+                    [GaussianDecoder(new_decoder()) for _ in range(d)],
+                    GaussianEncoder(new_encoder()),
+                ).to(device)
+                model.load_state_dict(torch.load(f"{d}decoder-{i}" + "/model.pt"))
+                model.eval()
+
+                with torch.no_grad():
+                    x1, x2 = test_pairs[0]
+                    pair_batch = torch.stack([x1, x2]).to(device)
+                    z_mean = model.encoder(pair_batch).mean
+                    p1, p2 = z_mean[0], z_mean[1]
+
+                curve = model.optimize_geodesics(p1, p2, num_nodes=50, steps=70, lr=0.01)
+                geodesics_distances.append(curve.get_length().cpu().detach().numpy())
+
+                euc_dist = torch.norm(p1 - p2)
+                euclidean_distances.append(euc_dist.cpu().numpy())
+
+            euc_mu = np.mean(euclidean_distances)
+            euc_sigma = np.std(euclidean_distances)
+
+            geo_mu = np.mean(geodesics_distances)
+            geo_sigma = np.std(geodesics_distances)
+
+            euc_covs.append(euc_sigma / euc_mu)
+            geo_covs.append(geo_sigma / geo_mu)
         
+        print("Euclidean CoVs:")
+        for cov in euc_covs:
+            print(cov)
+        
+        print("Geodesics CoVs")
+        for cov in geo_covs:
+            print(cov)
+
+
+
 
         
