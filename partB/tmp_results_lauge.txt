@@ -1,0 +1,9 @@
+1 Decoder
+-> Avg Euclidean CoV: 0.0771
+  -> Avg Geodesic CoV:  0.0609
+
+2 Decoders
+  -> Avg Euclidean CoV: 0.0412
+  -> Avg Geodesic CoV:  0.0443
+
+30/40 min in
