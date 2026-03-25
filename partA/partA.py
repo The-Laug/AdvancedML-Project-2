@@ -234,7 +234,7 @@ if __name__ == "__main__":
     
     #Accessing decoder for energy calculation
     model = VAE(GaussianPrior(latent_dim), GaussianDecoder(decoder_net), GaussianEncoder(encoder_net))
-    model.load_state_dict(torch.load("w5/gauss_vae_good.pth", map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu")))
+    model.load_state_dict(torch.load("partA/gauss_vae_good.pth", map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu")))
     model.eval()
     decoder = model.decoder
 
