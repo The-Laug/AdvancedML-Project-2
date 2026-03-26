@@ -170,7 +170,7 @@ def train(model, optimizer, data_loader, epochs, device):
                 x = x.to(device) # Don't forget to move data to your device!
                 
                 # Uncomment this to improve your ensemble later!
-                # x = noise(x) 
+                x = noise(x) 
 
                 optimizer.zero_grad()
                 loss = model(x)

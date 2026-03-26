@@ -75,73 +75,77 @@ def build_ensemble_vae(num_decoders):
     model = VAE(GaussianPrior(latent_dim), ensemble_decoder, encoder)
     return model
 
-
-# --- 3. The Grand Outer Loop ---
+# --- 3. The Grand Outer Loop (Optimized) ---
 def run_cov_experiments(data_loader, device):
     y_starts, y_ends = get_fixed_image_pairs(data_loader, num_pairs=10)
     y_starts = y_starts.to(device)
     y_ends = y_ends.to(device)
     
-    num_max_decoders = 3  # Train with all 3
-    decoder_counts = [1, 2, 3]  # Test with subsets
-    M_retrainings = 10
+    decoder_counts = [1, 2, 3] # As required by the project
+    M_retrainings = 10         # Number of VAE retrainings
     
+    # Use dictionaries to store the matrices for 1, 2, and 3 decoders
+    dist_euc = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings))}
+    dist_geo = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings))}
+    
+    print(f"\n=== Starting Optimized Experiments ({M_retrainings} Total Trainings) ===")
+    
+    for run in range(M_retrainings):
+        print(f"\n  Training VAE {run + 1}/{M_retrainings} (with 3 Decoders)...")
+        
+        # 1. Initialize and train a VAE with ALL 3 decoders
+        model = build_ensemble_vae(num_decoders=3).to(device) 
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        train(model, optimizer, data_loader, epochs=50, device=device) 
+        
+        model.eval()
+        
+        # 2. Find the latent coordinates for our fixed images
+        with torch.no_grad():
+            x_starts = model.encoder(y_starts).mean 
+            x_ends = model.encoder(y_ends).mean 
+            
+        # 3. Calculate distances for all 10 pairs on THIS model
+        for pair_idx in tqdm(range(10), desc=f"Optimizing pairs for Run {run + 1}"):
+            z_start = x_starts[pair_idx]
+            z_end = x_ends[pair_idx]
+            
+            # The Euclidean distance only relies on the encoder, so it is 
+            # identical for 1, 2, and 3 decoders on this specific model run.
+            euc_distance = calc_euclidean_dist(z_start, z_end)
+            
+            for num_decoders in decoder_counts:
+                dist_euc[num_decoders][pair_idx, run] = euc_distance
+                
+                # By passing `num_decoders` here, your calc_energy_ensemble and calc_geodesic_dist 
+                # functions will automatically only loop up to that index (e.g., only using idx=0 for num_decoders=1),
+                # perfectly simulating a smaller ensemble!
+                optimized_curve = optimize_geodesic_ensemble(
+                    z_start, z_end, model, num_decoders=num_decoders, num_nodes=50, num_steps=500, lr=0.01
+                )
+                dist_geo[num_decoders][pair_idx, run] = calc_geodesic_dist(optimized_curve, model.decoder, num_decoders)
+                
+    # --- Calculate Final CoV ---
     avg_cov_euclidean = []
     avg_cov_geodesic = []
     
-    for run in range(M_retrainings):
-        print(f"\nTraining Model {run + 1}/{M_retrainings} with {num_max_decoders} decoders...")
+    print("\n=== Final Results ===")
+    for num_decoders in decoder_counts:
+        # Equation 2: CoV = std / mean
+        cov_euc_per_pair = np.std(dist_euc[num_decoders], axis=1) / np.mean(dist_euc[num_decoders], axis=1)
+        cov_geo_per_pair = np.std(dist_geo[num_decoders], axis=1) / np.mean(dist_geo[num_decoders], axis=1)
         
-        # 1. Train ONCE with all decoders
-        model = build_ensemble_vae(num_max_decoders).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        train(model, optimizer, data_loader, epochs=50, device=device)
-        model.eval()
+        avg_cov_euclidean.append(np.mean(cov_euc_per_pair))
+        avg_cov_geodesic.append(np.mean(cov_geo_per_pair))
         
-        # 2. Get latent codes (same for all subset tests)
-        with torch.no_grad():
-            x_starts = model.encoder(y_starts).mean
-            x_ends = model.encoder(y_ends).mean
+        print(f"  {num_decoders} Decoder(s):")
+        print(f"  -> Avg Euclidean CoV: {avg_cov_euclidean[-1]:.4f}")
+        print(f"  -> Avg Geodesic CoV:  {avg_cov_geodesic[-1]:.4f}")
         
-        # 3. Test each decoder count by holding out decoders
-        for num_decoders in decoder_counts:
-            print(f"  Testing with {num_decoders} decoder(s)...")
-            
-            dist_euc = np.zeros((10, 1))
-            dist_geo = np.zeros((10, 1))
-            
-            for pair_idx in range(10):
-                z_start = x_starts[pair_idx]
-                z_end = x_ends[pair_idx]
-                
-                # Euclidean
-                dist_euc[pair_idx, 0] = calc_euclidean_dist(z_start, z_end)
-                
-                # Geodesic (only use first num_decoders)
-                optimized_curve = optimize_geodesic_ensemble(
-                    z_start, z_end, model, num_decoders, num_nodes=50, num_steps=500, lr=0.01
-                )
-                dist_geo[pair_idx, 0] = calc_geodesic_dist(optimized_curve, model.decoder, num_decoders)
-            
-            # Store results
-            if run == 0:
-                avg_cov_euclidean.append(np.zeros(M_retrainings))
-                avg_cov_geodesic.append(np.zeros(M_retrainings))
-            
-            idx = decoder_counts.index(num_decoders)
-            avg_cov_euclidean[idx][run] = np.mean(np.std(dist_euc, axis=1) / np.mean(dist_euc, axis=1))
-            avg_cov_geodesic[idx][run] = np.mean(np.std(dist_geo, axis=1) / np.mean(dist_geo, axis=1))
-    
-    # Average CoV across the M_retrainings
-    final_cov_euc = [np.mean(cov) for cov in avg_cov_euclidean]
-    final_cov_geo = [np.mean(cov) for cov in avg_cov_geodesic]
-    
-    for i, num_dec in enumerate(decoder_counts):
-        print(f"{num_dec} Decoders: Euclidean CoV = {final_cov_euc[i]:.4f}, Geodesic CoV = {final_cov_geo[i]:.4f}")
         with open("cov_results.txt", "a") as f:
-            f.write(f"{num_dec} Decoders: Euclidean CoV = {final_cov_euc[i]:.4f}, Geodesic CoV = {final_cov_geo[i]:.4f}\n")
-    
-    return decoder_counts, final_cov_euc, final_cov_geo
+            f.write(f"{num_decoders} Decoders: Avg Euclidean CoV = {avg_cov_euclidean[-1]:.4f}, Avg Geodesic CoV = {avg_cov_geodesic[-1]:.4f}\n")
+
+    return decoder_counts, avg_cov_euclidean, avg_cov_geodesic
 
 
 def plot_cov_results(decoder_counts, avg_cov_euclidean, avg_cov_geodesic):
