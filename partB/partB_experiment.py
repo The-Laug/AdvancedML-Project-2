@@ -81,25 +81,28 @@ def run_cov_experiments(data_loader, device):
     y_starts = y_starts.to(device)
     y_ends = y_ends.to(device)
     
-    decoder_counts = [1, 2, 3] # As required by the project
-    M_retrainings = 10         # Number of VAE retrainings
+    decoder_counts = [1, 2, 3, 4] # As required by the project
+    M_retrainings = 20         # Number of VAE retrainings
     
     # Use dictionaries to store the matrices for 1, 2, and 3 decoders
-    dist_euc = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings))}
-    dist_geo = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings))}
+    dist_euc = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings)), 4: np.zeros((10, M_retrainings))}
+    dist_geo = {1: np.zeros((10, M_retrainings)), 2: np.zeros((10, M_retrainings)), 3: np.zeros((10, M_retrainings)), 4: np.zeros((10, M_retrainings))}
     
     print(f"\n=== Starting Optimized Experiments ({M_retrainings} Total Trainings) ===")
     
     for run in range(M_retrainings):
-        print(f"\n  Training VAE {run + 1}/{M_retrainings} (with 3 Decoders)...")
+        print(f"\n  Training VAE {run + 1}/{M_retrainings} (with 4 Decoders)...")
         
-        # 1. Initialize and train a VAE with ALL 3 decoders
-        model = build_ensemble_vae(num_decoders=3).to(device) 
+        # 1. Initialize and train a VAE with ALL 4 decoders
+        model = build_ensemble_vae(num_decoders=4).to(device) 
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
         train(model, optimizer, data_loader, epochs=50, device=device) 
         
         model.eval()
         
+        save_path = f"results/vae_run_{run + 1}.pth"
+        torch.save(model.state_dict(), save_path)
+        print(f"  -> Model saved to {save_path}")
         # 2. Find the latent coordinates for our fixed images
         with torch.no_grad():
             x_starts = model.encoder(y_starts).mean 
@@ -142,7 +145,7 @@ def run_cov_experiments(data_loader, device):
         print(f"  -> Avg Euclidean CoV: {avg_cov_euclidean[-1]:.4f}")
         print(f"  -> Avg Geodesic CoV:  {avg_cov_geodesic[-1]:.4f}")
         
-        with open("cov_results.txt", "a") as f:
+        with open("results/cov_results.txt", "a") as f:
             f.write(f"{num_decoders} Decoders: Avg Euclidean CoV = {avg_cov_euclidean[-1]:.4f}, Avg Geodesic CoV = {avg_cov_geodesic[-1]:.4f}\n")
 
     return decoder_counts, avg_cov_euclidean, avg_cov_geodesic
@@ -161,7 +164,7 @@ def plot_cov_results(decoder_counts, avg_cov_euclidean, avg_cov_geodesic):
     plt.grid(True, alpha=0.3)
     
     # Save it for your report!
-    plt.savefig("cov_results.pdf", bbox_inches='tight')
+    plt.savefig("results/cov_results.pdf", bbox_inches='tight')
     plt.show()
 
 if __name__ == "__main__":
