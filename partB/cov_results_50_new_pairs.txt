@@ -1,0 +1,3 @@
+1 Decoders: Avg Euclidean CoV = 0.1429, Avg Geodesic CoV = 0.0933
+2 Decoders: Avg Euclidean CoV = 0.0475, Avg Geodesic CoV = 0.0456
+3 Decoders: Avg Euclidean CoV = 0.0313, Avg Geodesic CoV = 0.0393
